@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -13,7 +13,8 @@
           <p class="eyebrow">Document Reasoning Workspace</p>
           <h1>{{ app_name }}</h1>
           <p class="hero-text">
-            Upload PDFs, process them into a knowledge base, ask grounded questions, and review evidence in a calmer, document-first layout.
+            Upload PDFs, process them into a knowledge base, ask grounded
+            questions, and review evidence.
           </p>
         </div>
       </header>
@@ -31,11 +32,17 @@
             <label class="upload-dropzone" for="files">
               <input id="files" type="file" accept="application/pdf" multiple />
               <span class="upload-title">Choose one or more PDFs</span>
-              <span class="upload-subtitle">Drag files here or click to browse</span>
+              <span class="upload-subtitle"
+                >Drag files here or click to browse</span
+              >
             </label>
             <div class="upload-actions">
-              <button type="submit" class="primary-button">Start ingestion</button>
-              <button id="reset-button" class="secondary-button" type="button">Clear index</button>
+              <button type="submit" class="primary-button">
+                Start ingestion
+              </button>
+              <button id="reset-button" class="secondary-button" type="button">
+                Clear index
+              </button>
             </div>
           </form>
           <div id="file-list" class="file-list">
@@ -73,7 +80,9 @@
             <h2>Questions</h2>
           </div>
           <div id="history-list" class="history-list">
-            <div class="empty-state">Your asked questions will appear here.</div>
+            <div class="empty-state">
+              Your asked questions will appear here.
+            </div>
           </div>
         </aside>
 
@@ -101,7 +110,8 @@
 
           <section id="viewer" class="viewer">
             <div class="results-empty">
-              Ask a question after ingestion finishes. The answer and citations will appear here.
+              Ask a question after ingestion finishes. The answer and citations
+              will appear here.
             </div>
           </section>
         </section>
