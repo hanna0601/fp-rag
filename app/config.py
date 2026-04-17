@@ -7,7 +7,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Settings:
-    app_name: str = "Simple RAG"
+    app_name: str = "First-Principles RAG"
     data_dir: Path = Path("data")
     uploads_dir: Path = Path("data/uploads")
     db_path: Path = Path("data/index.db")

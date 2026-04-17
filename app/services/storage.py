@@ -9,6 +9,7 @@ from pathlib import Path
 class Storage:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
+        self._cache_version = 0
         self._initialize()
 
     def connect(self) -> sqlite3.Connection:
@@ -80,6 +81,7 @@ class Storage:
                 """,
                 payload,
             )
+        self._cache_version += 1
 
     def fetch_chunks(self) -> list[sqlite3.Row]:
         with self.connect() as connection:
@@ -106,3 +108,8 @@ class Storage:
         with self.connect() as connection:
             connection.execute("DELETE FROM chunks")
             connection.execute("DELETE FROM documents")
+        self._cache_version += 1
+
+    @property
+    def cache_version(self) -> int:
+        return self._cache_version

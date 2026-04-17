@@ -77,6 +77,33 @@ class RetrievalResult:
     fused_score: float
 
 
+@dataclass
+class CorpusChunk:
+    chunk_id: int
+    document_id: int
+    filename: str
+    chunk_index: int
+    text: str
+    normalized_text: str
+    section_title: str | None
+    page_start: int
+    page_end: int
+    embedding: np.ndarray
+    tokens: tuple[str, ...]
+    token_set: frozenset[str]
+
+
+@dataclass
+class RetrievalCorpus:
+    version: int
+    chunks: list[CorpusChunk]
+    by_id: dict[int, CorpusChunk]
+    term_frequencies: dict[int, Counter]
+    row_lengths: dict[int, int]
+    document_frequencies: Counter
+    avg_len: float
+
+
 def normalize(text: str) -> str:
     return " ".join(_normalize_token(token) for token in WORD_RE.findall(text.lower()))
 
@@ -124,6 +151,7 @@ def rewrite_query(query: str) -> str:
 class HybridRetriever:
     def __init__(self, storage: Storage) -> None:
         self.storage = storage
+        self._corpus: RetrievalCorpus | None = None
 
     def retrieve(
         self,
@@ -132,16 +160,16 @@ class HybridRetriever:
         hyde_embedding: list[float] | None = None,
         top_k: int | None = None,
     ) -> list[RetrievalResult]:
-        rows = self.storage.fetch_chunks()
-        if not rows:
+        corpus = self._get_corpus()
+        if not corpus.chunks:
             return []
         limit = top_k or settings.retrieval_k
-        semantic = self._semantic_search(rows, query_embedding, settings.semantic_k)
-        keyword = self._keyword_search(rows, rewritten_query, settings.keyword_k)
+        semantic = self._semantic_search(corpus, query_embedding, settings.semantic_k)
+        keyword = self._keyword_search(corpus, rewritten_query, settings.keyword_k)
         hyde_semantic = (
-            self._semantic_search(rows, hyde_embedding, settings.semantic_k) if hyde_embedding else {}
+            self._semantic_search(corpus, hyde_embedding, settings.semantic_k) if hyde_embedding else {}
         )
-        merged = self._fuse(rows, rewritten_query, semantic, keyword, hyde_semantic)
+        merged = self._fuse(corpus, rewritten_query, semantic, keyword, hyde_semantic)
         reranked = sorted(
             merged.values(),
             key=lambda item: (
@@ -155,66 +183,105 @@ class HybridRetriever:
         deduplicated = self._deduplicate_results(reranked, max(limit * 2, limit))
         return self._mmr_select(deduplicated, limit)
 
-    def _semantic_search(self, rows: list, query_embedding: list[float], top_k: int) -> dict[int, float]:
+    def _get_corpus(self) -> RetrievalCorpus:
+        if self._corpus and self._corpus.version == self.storage.cache_version:
+            return self._corpus
+
+        rows = self.storage.fetch_chunks()
+        chunks: list[CorpusChunk] = []
+        term_frequencies: dict[int, Counter] = {}
+        row_lengths: dict[int, int] = {}
+        document_frequencies = Counter()
+
+        for row in rows:
+            tokens = tuple(tokenize(row["normalized_text"]))
+            token_freq = Counter(tokens)
+            chunk = CorpusChunk(
+                chunk_id=row["id"],
+                document_id=row["document_id"],
+                filename=row["filename"],
+                chunk_index=row["chunk_index"],
+                text=row["text"],
+                normalized_text=row["normalized_text"],
+                section_title=row["section_title"],
+                page_start=row["page_start"],
+                page_end=row["page_end"],
+                embedding=np.array(json.loads(row["embedding"]), dtype=float),
+                tokens=tokens,
+                token_set=frozenset(token_freq),
+            )
+            chunks.append(chunk)
+            term_frequencies[chunk.chunk_id] = token_freq
+            row_lengths[chunk.chunk_id] = len(tokens)
+            for term in token_freq:
+                document_frequencies[term] += 1
+
+        avg_len = sum(row_lengths.values()) / max(len(chunks), 1) if chunks else 1.0
+        self._corpus = RetrievalCorpus(
+            version=self.storage.cache_version,
+            chunks=chunks,
+            by_id={chunk.chunk_id: chunk for chunk in chunks},
+            term_frequencies=term_frequencies,
+            row_lengths=row_lengths,
+            document_frequencies=document_frequencies,
+            avg_len=avg_len or 1.0,
+        )
+        return self._corpus
+
+    def _semantic_search(
+        self,
+        corpus: RetrievalCorpus,
+        query_embedding: list[float],
+        top_k: int,
+    ) -> dict[int, float]:
         query = np.array(query_embedding, dtype=float)
         query_norm = np.linalg.norm(query) or 1.0
         scores: list[tuple[int, float]] = []
-        for row in rows:
-            embedding = np.array(json.loads(row["embedding"]), dtype=float)
-            denom = (np.linalg.norm(embedding) or 1.0) * query_norm
-            score = float(np.dot(embedding, query) / denom)
-            scores.append((row["id"], score))
+        for chunk in corpus.chunks:
+            denom = (np.linalg.norm(chunk.embedding) or 1.0) * query_norm
+            score = float(np.dot(chunk.embedding, query) / denom)
+            scores.append((chunk.chunk_id, score))
         return dict(sorted(scores, key=lambda item: item[1], reverse=True)[:top_k])
 
-    def _keyword_search(self, rows: list, query: str, top_k: int) -> dict[int, float]:
+    def _keyword_search(self, corpus: RetrievalCorpus, query: str, top_k: int) -> dict[int, float]:
         query_terms = tokenize(query)
         if not query_terms:
             return {}
-        doc_count = max(len(rows), 1)
-        avg_len = sum(len(tokenize(row["normalized_text"])) for row in rows) / doc_count
-        avg_len = avg_len or 1.0
-
-        df = Counter()
-        row_term_freq: dict[int, Counter] = {}
-        row_lengths: dict[int, int] = {}
-        for row in rows:
-            terms = tokenize(row["normalized_text"])
-            term_freq = Counter(terms)
-            row_term_freq[row["id"]] = term_freq
-            row_lengths[row["id"]] = len(terms)
-            for term in term_freq:
-                df[term] += 1
+        doc_count = max(len(corpus.chunks), 1)
 
         k1 = 1.5
         b = 0.75
         scores: list[tuple[int, float]] = []
-        for row in rows:
-            row_id = row["id"]
-            doc_len = row_lengths[row_id] or 1
+        for chunk in corpus.chunks:
+            row_id = chunk.chunk_id
+            doc_len = corpus.row_lengths[row_id] or 1
             score = 0.0
             for term in query_terms:
-                freq = row_term_freq[row_id][term]
+                freq = corpus.term_frequencies[row_id][term]
                 if freq == 0:
                     continue
-                idf = math.log(1 + (doc_count - df[term] + 0.5) / (df[term] + 0.5))
+                idf = math.log(
+                    1
+                    + (doc_count - corpus.document_frequencies[term] + 0.5)
+                    / (corpus.document_frequencies[term] + 0.5)
+                )
                 numerator = freq * (k1 + 1)
-                denominator = freq + k1 * (1 - b + b * doc_len / avg_len)
+                denominator = freq + k1 * (1 - b + b * doc_len / corpus.avg_len)
                 score += idf * (numerator / denominator)
 
-            score += self._technical_term_boost(query_terms, row["normalized_text"])
+            score += self._technical_term_boost(query_terms, chunk.tokens)
             if score > 0:
                 scores.append((row_id, score))
         return dict(sorted(scores, key=lambda item: item[1], reverse=True)[:top_k])
 
     def _fuse(
         self,
-        rows: list,
+        corpus: RetrievalCorpus,
         query: str,
         semantic: dict[int, float],
         keyword: dict[int, float],
         hyde_semantic: dict[int, float],
     ) -> dict[int, RetrievalResult]:
-        by_id = {row["id"]: row for row in rows}
         max_sem = max(semantic.values(), default=1.0)
         max_key = max(keyword.values(), default=1.0)
         max_hyde = max(hyde_semantic.values(), default=1.0)
@@ -222,7 +289,7 @@ class HybridRetriever:
         results: dict[int, RetrievalResult] = {}
         rrf_scores = self._rrf([semantic, keyword, hyde_semantic])
         for chunk_id in set(semantic) | set(keyword) | set(hyde_semantic):
-            row = by_id[chunk_id]
+            chunk = corpus.by_id[chunk_id]
             semantic_score = semantic.get(chunk_id, 0.0)
             keyword_score = keyword.get(chunk_id, 0.0)
             hyde_score = hyde_semantic.get(chunk_id, 0.0)
@@ -230,12 +297,11 @@ class HybridRetriever:
             normalized_key = keyword_score / max_key if max_key else 0.0
             normalized_hyde = hyde_score / max_hyde if max_hyde else 0.0
 
-            row_tokens = set(tokenize(row["normalized_text"]))
-            overlap_tokens = row_tokens & query_terms
+            overlap_tokens = chunk.token_set & query_terms
             coverage_boost = min(len(overlap_tokens) / 12.0, 0.15)
-            exact_phrase_boost = self._phrase_boost(query, row["normalized_text"])
-            heading_boost = self._heading_boost(query_terms, row["text"])
-            section_boost = self._section_title_boost(query_terms, row["section_title"] or "")
+            exact_phrase_boost = self._phrase_boost(query, chunk.normalized_text)
+            heading_boost = self._heading_boost(query_terms, chunk.text)
+            section_boost = self._section_title_boost(query_terms, chunk.section_title or "")
             fused = (
                 0.38 * normalized_sem
                 + 0.26 * normalized_key
@@ -248,13 +314,13 @@ class HybridRetriever:
             )
             results[chunk_id] = RetrievalResult(
                 chunk_id=chunk_id,
-                document_id=row["document_id"],
-                filename=row["filename"],
-                chunk_index=row["chunk_index"],
-                text=row["text"],
-                section_title=row["section_title"],
-                page_start=row["page_start"],
-                page_end=row["page_end"],
+                document_id=chunk.document_id,
+                filename=chunk.filename,
+                chunk_index=chunk.chunk_index,
+                text=chunk.text,
+                section_title=chunk.section_title,
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
                 semantic_score=semantic_score,
                 keyword_score=keyword_score,
                 fused_score=fused,
@@ -269,8 +335,7 @@ class HybridRetriever:
                 fused[chunk_id] += 1.0 / (k + rank)
         return dict(fused)
 
-    def _technical_term_boost(self, query_terms: list[str], normalized_text: str) -> float:
-        tokens = tokenize(normalized_text)
+    def _technical_term_boost(self, query_terms: list[str], tokens: tuple[str, ...]) -> float:
         if not tokens:
             return 0.0
 
