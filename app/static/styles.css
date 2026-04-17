@@ -1,0 +1,129 @@
+:root {
+  --bg: #f4efe7;
+  --panel: rgba(255, 251, 245, 0.9);
+  --ink: #1e1b18;
+  --muted: #6f655c;
+  --accent: #b14d2f;
+  --accent-strong: #7c2610;
+  --line: rgba(30, 27, 24, 0.12);
+  --shadow: 0 22px 44px rgba(66, 35, 17, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(177, 77, 47, 0.18), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(124, 38, 16, 0.12), transparent 24%),
+    linear-gradient(180deg, #f9f3ec 0%, var(--bg) 100%);
+}
+
+.shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 48px 20px 72px;
+}
+
+.hero {
+  margin-bottom: 24px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(10px);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+  font-size: 0.75rem;
+}
+
+h1, h2 {
+  margin-top: 0;
+}
+
+.lede {
+  max-width: 760px;
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+
+form {
+  display: grid;
+  gap: 12px;
+}
+
+.upload {
+  border: 1px dashed var(--accent);
+  border-radius: 18px;
+  padding: 22px;
+  text-align: center;
+  background: rgba(177, 77, 47, 0.05);
+  cursor: pointer;
+}
+
+.upload input {
+  display: none;
+}
+
+textarea,
+button {
+  font: inherit;
+}
+
+textarea {
+  width: 100%;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fffdf9;
+}
+
+button {
+  justify-self: start;
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  cursor: pointer;
+}
+
+pre,
+.chat-result {
+  white-space: pre-wrap;
+  background: #fffdf9;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  padding: 16px;
+  min-height: 120px;
+}
+
+.chat-result strong {
+  display: block;
+  margin: 0 0 8px;
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

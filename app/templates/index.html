@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel hero">
+        <p class="eyebrow">FastAPI + Mistral + Custom Retrieval</p>
+        <h1>{{ app_name }}</h1>
+        <p class="lede">
+          Upload PDFs, ask grounded questions, and get answers with citations from your local knowledge base.
+        </p>
+      </section>
+
+      <section class="grid">
+        <section class="panel">
+          <h2>Ingest PDFs</h2>
+          <form id="upload-form">
+            <label class="upload">
+              <input id="files" type="file" accept="application/pdf" multiple />
+              <span>Select one or more PDFs</span>
+            </label>
+            <button type="submit">Upload</button>
+          </form>
+          <pre id="upload-result"></pre>
+        </section>
+
+        <section class="panel">
+          <h2>Ask a Question</h2>
+          <form id="query-form">
+            <textarea id="query" rows="5" placeholder="Ask something about the uploaded documents"></textarea>
+            <button type="submit">Send</button>
+          </form>
+          <div id="chat-result" class="chat-result"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+  </html>
