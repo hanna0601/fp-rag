@@ -69,6 +69,7 @@ class RetrievalResult:
     filename: str
     chunk_index: int
     text: str
+    section_title: str | None
     page_start: int
     page_end: int
     semantic_score: float
@@ -234,6 +235,7 @@ class HybridRetriever:
             coverage_boost = min(len(overlap_tokens) / 12.0, 0.15)
             exact_phrase_boost = self._phrase_boost(query, row["normalized_text"])
             heading_boost = self._heading_boost(query_terms, row["text"])
+            section_boost = self._section_title_boost(query_terms, row["section_title"] or "")
             fused = (
                 0.38 * normalized_sem
                 + 0.26 * normalized_key
@@ -242,6 +244,7 @@ class HybridRetriever:
                 + coverage_boost
                 + exact_phrase_boost
                 + heading_boost
+                + section_boost
             )
             results[chunk_id] = RetrievalResult(
                 chunk_id=chunk_id,
@@ -249,6 +252,7 @@ class HybridRetriever:
                 filename=row["filename"],
                 chunk_index=row["chunk_index"],
                 text=row["text"],
+                section_title=row["section_title"],
                 page_start=row["page_start"],
                 page_end=row["page_end"],
                 semantic_score=semantic_score,
@@ -298,6 +302,13 @@ class HybridRetriever:
             heading_tokens.update(tokenize(line))
         overlap = len(query_terms & heading_tokens)
         return min(0.12, overlap * 0.04)
+
+    def _section_title_boost(self, query_terms: set[str], section_title: str) -> float:
+        if not section_title:
+            return 0.0
+        title_tokens = set(tokenize(section_title))
+        overlap = len(query_terms & title_tokens)
+        return min(0.14, overlap * 0.05)
 
     def _deduplicate_results(
         self,

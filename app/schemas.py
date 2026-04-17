@@ -25,6 +25,7 @@ class Citation(BaseModel):
     document_id: int
     filename: str
     chunk_id: int
+    section_title: str | None = None
     page_start: int
     page_end: int
     score: float

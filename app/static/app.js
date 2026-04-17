@@ -144,13 +144,19 @@ function inlineChipMarkup(labels) {
 function renderRichLine(rawText, fallbackLabels = []) {
   const labels = extractCitationLabels(rawText);
   const resolvedLabels = labels.length ? labels : fallbackLabels;
-  const cleaned = escapeHtml(stripCitationLabels(rawText));
+  const cleaned = formatInlineMarkdown(escapeHtml(stripCitationLabels(rawText)));
   return `
     <div class="answer-rich-line">
       ${cleaned.replace(/\n/g, "<br>")}
       ${inlineChipMarkup(resolvedLabels)}
     </div>
   `;
+}
+
+function formatInlineMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function formatAnswerAsHtml(answer, citations) {

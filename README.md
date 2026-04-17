@@ -51,6 +51,7 @@ flowchart TD
 
 - Sentence-aware chunking with overlap
 - Page-aware metadata for source citations
+- Section-title extraction for chunk metadata
 - Whitespace normalization before chunking
 - Reference-page filtering for academic PDFs
 
@@ -58,6 +59,7 @@ Why:
 - sentence boundaries preserve meaning better than raw fixed windows
 - overlap reduces boundary loss
 - page tracking makes citations explicit
+- section metadata helps section-specific ranking
 - references pages often degrade retrieval quality and should not dominate results
 
 ### Query processing
@@ -90,6 +92,7 @@ The HyDE idea is inspired by Gao et al. (ACL 2023): [paper](https://aclanthology
 
 - Reciprocal Rank Fusion (RRF) across dense, keyword, and HyDE rankings
 - additional exact-term, phrase, and heading boosts
+- section-title boost when chunk metadata aligns with the query
 - Maximal Marginal Relevance (MMR) to diversify the final top-k evidence
 
 Why:
@@ -100,6 +103,15 @@ Why:
 RRF is based on Cormack, Clarke, and Büttcher (SIGIR 2009): [paper metadata](https://ir.webis.de/anthology/2009.sigirconf_conference-2009.146/).
 
 MMR is based on Carbonell and Goldstein (SIGIR 1998): [paper metadata](https://sigmod.org/publications/dblp/db/conf/sigir/CarbonellG98.html).
+
+### Evidence extraction
+
+- retrieval operates on chunks
+- citations are distilled to the most query-relevant sentences inside each selected chunk
+
+Why:
+- chunk retrieval is more stable than pure sentence-level indexing in a small system
+- sentence-level evidence is clearer for citation review and grounded QA
 
 ### Generation and grounding
 
@@ -174,6 +186,19 @@ export RAG_EMBED_BATCH_SIZE=2
 - weak evidence returns `insufficient evidence`
 - Mistral `400`, `401`, and `429` errors are surfaced clearly for debugging
 
+## Evaluation Examples
+
+These questions were used as targeted checks for retrieval quality and grounded generation.
+
+| PDF(s) | Question | Expected answer summary |
+| --- | --- | --- |
+| `attention.pdf` | How does self-attention differ from recurrent models in the Transformer paper? | self-attention is parallelizable, reduces path length for long-range dependencies, and replaces step-by-step recurrence with attention over all positions |
+| `attention.pdf` | What embeddings does the Transformer use, and how are positional encodings handled? | learned token embeddings of dimension `d_model`, positional information added separately, sinusoidal positional encodings in the main model, learned positional embeddings reported as similar |
+| `bert.pdf` | What is BERT’s pre-training objective? | masked language modeling plus next sentence prediction |
+| `bert.pdf` | Why is bidirectional pre-training important in BERT? | it lets the model use both left and right context, which improves contextual understanding and downstream task performance |
+| `bert.pdf` + `attention.pdf` | Compare the main contribution of BERT with the main contribution of Attention Is All You Need. | Transformer introduces the self-attention architecture; BERT applies the Transformer encoder with bidirectional pre-training for transfer learning |
+| any indexed set | Unsupported or out-of-scope question | system should return `insufficient evidence` or refuse when the evidence is weak or policy restricted |
+
 ## Scalability Notes
 
 The current design is intentionally small, but the upgrade path is straightforward:
@@ -191,6 +216,7 @@ The current design is intentionally small, but the upgrade path is straightforwa
 - the hallucination filter is heuristic, not a verifier
 - retrieval still loads chunk rows from SQLite into memory
 - HyDE improves recall but adds one extra LLM call for knowledge queries
+- section-title extraction is heuristic and depends on PDF text layout quality
 
 ## Project Layout
 

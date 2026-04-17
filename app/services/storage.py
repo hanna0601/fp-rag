@@ -33,6 +33,7 @@ class Storage:
                     chunk_index INTEGER NOT NULL,
                     text TEXT NOT NULL,
                     normalized_text TEXT NOT NULL,
+                    section_title TEXT,
                     page_start INTEGER NOT NULL,
                     page_end INTEGER NOT NULL,
                     embedding TEXT NOT NULL,
@@ -42,6 +43,11 @@ class Storage:
                 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
                 """
             )
+            existing_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(chunks)").fetchall()
+            }
+            if "section_title" not in existing_columns:
+                connection.execute("ALTER TABLE chunks ADD COLUMN section_title TEXT")
 
     def insert_document(self, filename: str, stored_path: str) -> int:
         with self.connect() as connection:
@@ -58,6 +64,7 @@ class Storage:
                 row["chunk_index"],
                 row["text"],
                 row["normalized_text"],
+                row["section_title"],
                 row["page_start"],
                 row["page_end"],
                 json.dumps(row["embedding"]),
@@ -68,8 +75,8 @@ class Storage:
             connection.executemany(
                 """
                 INSERT INTO chunks (
-                    document_id, chunk_index, text, normalized_text, page_start, page_end, embedding
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    document_id, chunk_index, text, normalized_text, section_title, page_start, page_end, embedding
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 payload,
             )
@@ -84,6 +91,7 @@ class Storage:
                     c.chunk_index,
                     c.text,
                     c.normalized_text,
+                    c.section_title,
                     c.page_start,
                     c.page_end,
                     c.embedding,

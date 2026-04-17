@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+import re
 
 from fastapi import UploadFile
 
@@ -49,6 +50,7 @@ class RagService:
                     "chunk_index": index,
                     "text": chunk.text,
                     "normalized_text": normalize(chunk.text),
+                    "section_title": chunk.section_title,
                     "page_start": chunk.page_start,
                     "page_end": chunk.page_end,
                     "embedding": embeddings[index],
@@ -109,10 +111,11 @@ class RagService:
                 document_id=item.document_id,
                 filename=item.filename,
                 chunk_id=item.chunk_id,
+                section_title=item.section_title,
                 page_start=item.page_start,
                 page_end=item.page_end,
                 score=round(item.fused_score, 4),
-                snippet=self._citation_snippet(item.text),
+                snippet=self._citation_snippet(query, item.text),
             )
             for index, item in enumerate(retrieved)
         ]
@@ -196,6 +199,23 @@ class RagService:
         safe_name = Path(filename).name.replace(" ", "_")
         return settings.uploads_dir / f"{stamp}_{safe_name}"
 
-    def _citation_snippet(self, text: str) -> str:
-        cleaned = " ".join(text.split())
-        return cleaned
+    def _citation_snippet(self, query: str, text: str) -> str:
+        sentences = [
+            " ".join(sentence.split())
+            for sentence in re.split(r"(?<=[.!?])\s+", text)
+            if sentence.strip()
+        ]
+        if not sentences:
+            return " ".join(text.split())
+
+        query_terms = set(normalize(query).split())
+        scored = sorted(
+            sentences,
+            key=lambda sentence: (
+                len(query_terms & set(normalize(sentence).split())),
+                len(sentence),
+            ),
+            reverse=True,
+        )
+        top_sentences = scored[:2]
+        return " ".join(top_sentences).strip()
