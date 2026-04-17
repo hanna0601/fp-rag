@@ -56,3 +56,12 @@ async def query(payload: QueryRequest) -> QueryResponse:
         return await rag_service.answer_query(payload.query, payload.top_k)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/reset")
+async def reset() -> dict[str, str]:
+    try:
+        storage.reset()
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"status": "ok"}

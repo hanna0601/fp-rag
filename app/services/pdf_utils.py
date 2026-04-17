@@ -30,3 +30,18 @@ def normalize_whitespace(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def looks_like_references_page(text: str) -> bool:
+    lowered = text.lower()
+    reference_signals = [
+        "references",
+        "bibliography",
+        "acknowledgements",
+        "arxiv preprint",
+        "proceedings of",
+    ]
+    signal_hits = sum(1 for signal in reference_signals if signal in lowered)
+    bracketed_refs = len(re.findall(r"\[\d+\]", text))
+    year_hits = len(re.findall(r"\b(19|20)\d{2}\b", text))
+    return signal_hits >= 2 or (signal_hits >= 1 and bracketed_refs >= 6 and year_hits >= 6)

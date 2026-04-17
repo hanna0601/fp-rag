@@ -1,144 +1,196 @@
-# Simple PDF RAG with FastAPI and Mistral
+# PDF RAG with FastAPI and Mistral
 
-A small Retrieval-Augmented Generation system for PDF knowledge bases.
+A Retrieval-Augmented Generation system for PDF knowledge bases built with FastAPI and Mistral. The implementation avoids external RAG/search frameworks and third-party vector databases; chunking, retrieval, fusion, reranking, and evidence gating are implemented directly in Python.
 
-It exposes:
+## What This Submission Covers
 
 - `POST /ingest` to upload one or more PDFs
-- `POST /query` to ask grounded questions over the ingested corpus
-- `/` for a minimal chat UI
+- `POST /query` to ask grounded questions over the indexed corpus
+- `POST /reset` to clear the local index
+- a browser UI for upload, querying, history, and citation review
+- Mistral embeddings + generation
+- citations, refusal behavior, insufficient-evidence fallback, and a post-hoc hallucination check
 
-The implementation deliberately avoids external search and RAG frameworks. Retrieval, chunking, fusion, and reranking are implemented directly in Python.
+## Libraries Used
 
-## Stack
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [Mistral AI API](https://docs.mistral.ai/api/)
+- [PyPDF](https://pypdf.readthedocs.io/en/stable/)
+- [NumPy](https://numpy.org/)
+- SQLite from the Python standard library
 
-- [FastAPI](https://fastapi.tiangolo.com/) for the API
-- [Mistral AI API](https://docs.mistral.ai/api/) for embeddings and answer generation
-- [PyPDF](https://pypdf.readthedocs.io/en/stable/) for PDF text extraction
-- [NumPy](https://numpy.org/) for vector math
-- SQLite via Python stdlib for metadata and chunk persistence
-- Vanilla HTML/CSS/JS for the UI
-
-## System Design
+## Architecture
 
 ```mermaid
 flowchart TD
     A["Upload PDFs"] --> B["Extract text per page"]
-    B --> C["Normalize and chunk text"]
-    C --> D["Create embeddings with Mistral"]
+    B --> C["Normalize + chunk text"]
+    C --> D["Embed chunks with Mistral"]
     D --> E["Store docs, chunks, embeddings in SQLite"]
-    F["User query"] --> G["Intent detection and query rewrite"]
+    F["User query"] --> G["Intent detection + query rewrite"]
     G --> H["Query embedding"]
-    H --> I["Semantic search (cosine)"]
-    G --> J["Keyword search (BM25-style)"]
-    I --> K["Score fusion and reranking"]
-    J --> K
-    K --> L{"Enough evidence?"}
-    L -- "No" --> M["Return insufficient evidence"]
-    L -- "Yes" --> N["Prompt Mistral with top-k chunks"]
-    N --> O["Hallucination filter"]
-    O --> P["Answer with citations"]
+    G --> I["Keyword retrieval"]
+    G --> J["HyDE hypothetical answer"]
+    J --> K["HyDE embedding"]
+    H --> L["Dense retrieval"]
+    K --> M["HyDE dense retrieval"]
+    I --> N["RRF fusion"]
+    L --> N
+    M --> N
+    N --> O["MMR diversification"]
+    O --> P{"Enough evidence?"}
+    P -- "No" --> Q["Return insufficient evidence"]
+    P -- "Yes" --> R["Prompt Mistral with top-k evidence"]
+    R --> S["Evidence check"]
+    S --> T["Answer with citations"]
 ```
 
-## Retrieval Pipeline
+## Techniques Used and Why
 
-### 1. Data ingestion
+### Chunking
 
-`POST /ingest` accepts one or more PDF files as multipart form uploads.
+- Sentence-aware chunking with overlap
+- Page-aware metadata for source citations
+- Whitespace normalization before chunking
+- Reference-page filtering for academic PDFs
 
-For each file:
+Why:
+- sentence boundaries preserve meaning better than raw fixed windows
+- overlap reduces boundary loss
+- page tracking makes citations explicit
+- references pages often degrade retrieval quality and should not dominate results
 
-1. Save the PDF to `data/uploads/`
-2. Extract text page by page with `pypdf`
-3. Normalize whitespace
-4. Chunk text with overlap
-5. Request embeddings from Mistral
-6. Store document metadata, chunks, and embeddings in SQLite
+### Query processing
 
-### 2. Chunking considerations
+- intent detection to avoid unnecessary retrieval for greetings
+- lightweight typo normalization for common technical misspellings
+- query rewriting with compact keyword extraction
 
-The chunker is intentionally simple and explicit:
+Why:
+- reduces wasted retrieval calls
+- improves recall for narrow technical questions
+- supports both dense and keyword retrieval paths
 
-- It keeps page numbers so citations can reference source pages.
-- It prefers sentence boundaries before splitting hard by size.
-- It uses overlap to preserve context across chunk edges.
-- It keeps chunk size moderate to balance recall against prompt budget.
-- It normalizes whitespace first because PDF extraction often introduces noisy line breaks.
+### Retrieval
 
-Current defaults:
+The system combines three retrieval signals:
 
-- Chunk size: `1100` characters
-- Overlap: `180` characters
+1. dense retrieval from the rewritten query embedding
+2. BM25-style keyword retrieval implemented directly in Python
+3. HyDE-style dense retrieval using a hypothetical answer passage
 
-Tradeoffs:
+Why:
+- dense retrieval handles paraphrases
+- keyword retrieval is better for exact terms, formulas, acronyms, and section names
+- HyDE improves recall when the question is underspecified or phrased differently from the source text
 
-- Larger chunks improve context completeness but can blur ranking precision.
-- Smaller chunks improve retrieval granularity but increase index size and embedding cost.
-- Character-based limits are simple and deterministic, though token-aware splitting would be more precise in production.
+The HyDE idea is inspired by Gao et al. (ACL 2023): [paper](https://aclanthology.org/2023.acl-long.99/).
 
-### 3. Query processing
+### Fusion and reranking
 
-Before retrieval, the backend:
+- Reciprocal Rank Fusion (RRF) across dense, keyword, and HyDE rankings
+- additional exact-term, phrase, and heading boosts
+- Maximal Marginal Relevance (MMR) to diversify the final top-k evidence
 
-- Detects intent:
-  - greetings and casual chat avoid retrieval
-  - restricted queries trigger refusal
-  - knowledge questions proceed to search
-- Rewrites the query:
-  - removes weak filler words
-  - extracts focus terms
-  - appends them to the search query to improve both semantic and keyword recall
+Why:
+- RRF is robust when multiple retrieval methods are useful in different cases
+- exact-term and heading boosts help with technical PDF QA
+- MMR reduces repeated or near-duplicate chunks in the evidence set
 
-### 4. Semantic + keyword search
+RRF is based on Cormack, Clarke, and Büttcher (SIGIR 2009): [paper metadata](https://ir.webis.de/anthology/2009.sigirconf_conference-2009.146/).
 
-The system combines two retrieval signals:
+MMR is based on Carbonell and Goldstein (SIGIR 1998): [paper metadata](https://sigmod.org/publications/dblp/db/conf/sigir/CarbonellG98.html).
 
-- Semantic search:
-  - embed the rewritten query with Mistral
-  - compute cosine similarity against stored chunk embeddings
-- Keyword search:
-  - run a handwritten BM25-style scorer over normalized chunk text
+### Generation and grounding
 
-Why combine them:
+- prompt requires answers to stay within provided evidence
+- citations are required for material claims
+- if the top evidence score is too weak, the system returns `insufficient evidence`
+- a lightweight evidence check scans for unsupported answer sentences
 
-- semantic similarity handles paraphrases and abstract wording
-- keyword matching catches exact terms, names, numbers, and acronyms
+Why:
+- the assignment rewards grounded behavior, not unconstrained generation
+- refusal on weak evidence is better than fabricating an answer
 
-### 5. Fusion and reranking
+## API
 
-Results are merged with weighted score fusion:
+### `POST /ingest`
 
-- `0.65 * normalized semantic score`
-- `0.35 * normalized keyword score`
-- small coverage boost for direct query-term overlap
+Accepts one or more PDFs via multipart form-data.
 
-Then results are reranked by:
+```bash
+curl -X POST http://127.0.0.1:8000/ingest \
+  -F "files=@/path/to/file1.pdf" \
+  -F "files=@/path/to/file2.pdf"
+```
 
-- fused score
-- semantic score
-- keyword score
-- chunk length as a weak tie-breaker
+### `POST /query`
 
-### 6. Evidence gate and generation
+Accepts a JSON query.
 
-If the top chunk score is below a threshold, the system returns:
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query":"How does self-attention differ from recurrent models?","top_k":6}'
+```
 
-`insufficient evidence`
+### `POST /reset`
 
-Otherwise it:
+Clears the indexed documents and chunks.
 
-1. Builds a prompt with the top retrieved chunks
-2. Instructs the LLM to use only provided evidence
-3. Requires bracketed citations like `[1]`
-4. Runs a lightweight post-hoc evidence check that flags answers containing too many unsupported sentences
+```bash
+curl -X POST http://127.0.0.1:8000/reset
+```
 
-## Safety and Security
+## Running Locally
 
-- The app only answers grounded questions about uploaded PDFs.
-- It refuses PII extraction patterns and direct legal or medical advice prompts.
-- API keys should be supplied through environment variables, not committed to source.
-- The browser UI escapes dynamic content before rendering.
-- Uploaded files and embeddings remain local to the app database and filesystem.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export MISTRAL_API_KEY="YOUR_KEY"
+uvicorn app.main:app --reload
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+During development, the provided assignment key returned `401 Unauthorized`, so a personal Mistral key was required. The application supports any valid key through `MISTRAL_API_KEY`.
+
+Useful overrides:
+
+```bash
+export RAG_HYDE_ENABLED=true
+export RAG_TOP_K=8
+export RAG_MIN_EVIDENCE_SCORE=0.18
+export RAG_EMBED_BATCH_SIZE=2
+```
+
+## Security and Failure Handling
+
+- API keys are read from environment variables only
+- uploaded files stay local to the application workspace
+- the UI escapes model output before rendering
+- PII, legal-advice, and medical-advice requests are refused
+- weak evidence returns `insufficient evidence`
+- Mistral `400`, `401`, and `429` errors are surfaced clearly for debugging
+
+## Scalability Notes
+
+The current design is intentionally small, but the upgrade path is straightforward:
+
+- move ingestion to background jobs
+- cache embeddings and query results
+- replace SQLite with Postgres for higher concurrency
+- persist sparse-term statistics instead of rebuilding them per query
+- add OCR for scanned PDFs
+- add retry/backoff for rate-limited upstream calls
+
+## Known Limitations
+
+- `pypdf` works well for text PDFs, but not scanned-image PDFs
+- the hallucination filter is heuristic, not a verifier
+- retrieval still loads chunk rows from SQLite into memory
+- HyDE improves recall but adds one extra LLM call for knowledge queries
 
 ## Project Layout
 
@@ -163,96 +215,3 @@ data/
   uploads/
 tests/
 ```
-
-## Run Locally
-
-### 1. Create an environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Configure Mistral
-
-Set your API key in the environment.
-
-```bash
-export MISTRAL_API_KEY="YOUR_KEY"
-```
-
-If you are evaluating this against the provided assignment key, set that value here instead of hardcoding it into the repository.
-
-Optional overrides:
-
-```bash
-export MISTRAL_CHAT_MODEL="mistral-small-latest"
-export MISTRAL_EMBED_MODEL="mistral-embed"
-export RAG_TOP_K="8"
-export RAG_MIN_EVIDENCE_SCORE="0.18"
-```
-
-### 3. Start the app
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
-
-## API
-
-### `POST /ingest`
-
-Multipart form-data with one or more `files`.
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8000/ingest \
-  -F "files=@/path/to/file1.pdf" \
-  -F "files=@/path/to/file2.pdf"
-```
-
-### `POST /query`
-
-JSON body:
-
-```json
-{
-  "query": "What does the report say about customer retention?",
-  "top_k": 6
-}
-```
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{"query":"Summarize the retention strategy","top_k":6}'
-```
-
-## Scalability Notes
-
-This implementation is intentionally simple, but the design can evolve:
-
-- Move ingestion to background workers for large PDFs or batches.
-- Cache embeddings and query results.
-- Replace SQLite with Postgres for concurrency and operational resilience.
-- Add token-aware chunking and table-aware PDF extraction.
-- Incrementally rebuild index state rather than scanning all chunks on every query.
-- Add evaluation datasets for tuning thresholds and chunk sizes.
-
-## Limitations
-
-- `pypdf` works well for text PDFs, but scanned PDFs need OCR.
-- The hallucination filter is heuristic, not a formal verifier.
-- Retrieval currently loads chunk rows from SQLite into memory for scoring.
-- Query rewriting is rule-based rather than model-based.
-
-## Mistral References
-
-- [Chat completions docs](https://docs.mistral.ai/api/endpoint/chat)
-- [Embeddings docs](https://docs.mistral.ai/api/endpoint/embeddings)

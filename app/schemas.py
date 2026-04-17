@@ -21,6 +21,7 @@ class QueryRequest(BaseModel):
 
 
 class Citation(BaseModel):
+    label: str
     document_id: int
     filename: str
     chunk_id: int

@@ -93,3 +93,8 @@ class Storage:
                 ORDER BY c.id
                 """
             ).fetchall()
+
+    def reset(self) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM chunks")
+            connection.execute("DELETE FROM documents")

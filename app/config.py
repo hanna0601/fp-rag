@@ -21,6 +21,9 @@ class Settings:
     semantic_k: int = int(os.getenv("RAG_SEMANTIC_K", "12"))
     keyword_k: int = int(os.getenv("RAG_KEYWORD_K", "12"))
     min_evidence_score: float = float(os.getenv("RAG_MIN_EVIDENCE_SCORE", "0.18"))
+    embed_batch_size: int = int(os.getenv("RAG_EMBED_BATCH_SIZE", "16"))
+    hyde_enabled: bool = os.getenv("RAG_HYDE_ENABLED", "true").lower() == "true"
+    mmr_lambda: float = float(os.getenv("RAG_MMR_LAMBDA", "0.75"))
 
 
 settings = Settings()
