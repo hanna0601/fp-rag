@@ -5,6 +5,10 @@ def test_detect_intent_for_greeting() -> None:
     assert detect_intent("hello") == "chitchat"
 
 
+def test_detect_intent_for_identity_chitchat() -> None:
+    assert detect_intent("hello, who are you") == "chitchat"
+
+
 def test_detect_intent_for_knowledge_question() -> None:
     assert detect_intent("What does the report say about churn?") == "knowledge"
 

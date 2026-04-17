@@ -60,6 +60,13 @@ RESTRICTED_PATTERNS = {
     "medical": re.compile(r"\b(diagnose|prescribe|treatment plan|medical advice)\b", re.I),
     "legal": re.compile(r"\b(legal advice|sue|lawsuit|contract advice)\b", re.I),
 }
+CHITCHAT_PATTERNS = [
+    re.compile(r"^\s*(hello|hi|hey)\b", re.I),
+    re.compile(r"\bwho are you\b", re.I),
+    re.compile(r"\bwhat can you do\b", re.I),
+    re.compile(r"\bhow are you\b", re.I),
+    re.compile(r"\bthank(s| you)?\b", re.I),
+]
 
 
 @dataclass
@@ -123,6 +130,8 @@ def detect_intent(query: str) -> str:
         return "chitchat"
     if any(pattern.search(query) for pattern in RESTRICTED_PATTERNS.values()):
         return "restricted"
+    if any(pattern.search(query) for pattern in CHITCHAT_PATTERNS):
+        return "chitchat"
     tokens = tokenize(stripped)
     if not tokens:
         return "chitchat"
