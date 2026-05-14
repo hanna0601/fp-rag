@@ -214,17 +214,6 @@ These are the main questions I used to check retrieval quality and grounded gene
 - weak evidence returns `insufficient evidence`
 - Mistral `400`, `401`, and `429` errors are surfaced clearly for debugging
 
-## Scalability notes
-
-This is still a small project, but the upgrade path is clear:
-
-- move ingestion to background jobs
-- cache recent query results
-- replace SQLite with Postgres for higher concurrency
-- persist the index in a service better suited for larger corpora
-- add OCR for scanned PDFs
-- add retry/backoff for rate-limited upstream calls
-
 ## Limitations
 
 - `pypdf` works well for text PDFs, but not scanned-image PDFs
